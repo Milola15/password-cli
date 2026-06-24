@@ -10,25 +10,41 @@ import java.util.Scanner;
  * elle pose les questions, collecte les réponses, puis orchestre
  * la génération et l'affichage des résultats.
  *
- * On sépare la CLI de la logique métier (GeneratorPassword, StrengthEvaluator)
- * pour respecter le principe de responsabilité unique.
+ * On affiche deux scores :
+ * - Le score local (StrengthEvaluator) toujours disponible
+ * - Le score Docker (zxcvbn) si le conteneur est actif
  *
  * @author Milola
  * @version 1.0
  */
 public class CLI {
 
-    // Séparateur visuel — String.repeat() non disponible dans cette config Java
     private static final String SEPARATOR = "==================================================";
 
-    private final Scanner scanner = new Scanner(System.in);
+    private final Scanner           scanner   = new Scanner(System.in);
     private final StrengthEvaluator evaluator = new StrengthEvaluator();
+    private final PasswordValidator validator = new PasswordValidator();
+
+    // On vérifie Docker une seule fois au démarrage
+    private final boolean dockerAvailable;
+
+    public CLI() {
+        this.dockerAvailable = validator.isDockerAvailable();
+    }
 
     /**
      * Lance l'interface CLI — point d'entrée principal de l'interaction.
      */
     public void start() {
         printBanner();
+
+        // Informer l'utilisateur si Docker est disponible ou non
+        if (dockerAvailable) {
+            System.out.println("  Docker : connecte (validation zxcvbn active)");
+        } else {
+            System.out.println("  Docker : non disponible (score local uniquement)");
+        }
+        System.out.println();
 
         // Collecter les préférences de l'utilisateur
         int length      = askLength();
@@ -38,13 +54,12 @@ public class CLI {
         boolean symbols = askBoolean("Inclure des symboles ?   (o/n)");
         int count       = askCount();
 
-        // Sécurité : si aucun type sélectionné, forcer les minuscules par défaut
+        // Sécurité : si aucun type sélectionné, forcer les minuscules
         if (!upper && !lower && !digits && !symbols) {
             System.out.println("\nAucun type selectionne — minuscules activees par defaut.");
             lower = true;
         }
 
-        // Créer le générateur avec les paramètres choisis
         GeneratorPassword generator = new GeneratorPassword(length, upper, lower, digits, symbols);
 
         System.out.println("\n" + SEPARATOR);
@@ -52,11 +67,9 @@ public class CLI {
         System.out.println(SEPARATOR);
 
         if (count == 1) {
-            // Mode simple — un seul mot de passe
             String pwd = generator.generate();
             printResult(1, pwd);
         } else {
-            // Mode rafale — plusieurs mots de passe d'un coup
             List<String> batch = generator.generateBatch(count);
             for (int i = 0; i < batch.size(); i++) {
                 printResult(i + 1, batch.get(i));
@@ -66,7 +79,6 @@ public class CLI {
         System.out.println(SEPARATOR);
         System.out.println("\nGeneration terminee !");
 
-        // Proposer de recommencer sans relancer le programme
         if (askBoolean("\nGenerer d'autres mots de passe ? (o/n)")) {
             start();
         } else {
@@ -76,31 +88,47 @@ public class CLI {
     }
 
     /**
-     * Affiche le bandeau de bienvenue au démarrage.
+     * Affiche le bandeau de bienvenue.
      */
     private void printBanner() {
         System.out.println("\n" + SEPARATOR);
         System.out.println("   PASSWORD CLI - Pigier Cote d'Ivoire");
         System.out.println("   Generateur de mots de passe securises");
-        System.out.println(SEPARATOR + "\n");
+        System.out.println(SEPARATOR);
     }
 
     /**
-     * Affiche un mot de passe numéroté avec son score de robustesse.
+     * Affiche un mot de passe avec son score local ET son score Docker.
      *
-     * @param index Numéro d'ordre dans la liste
+     * Si Docker est disponible, on affiche les deux scores pour montrer
+     * que la validation externe confirme (ou non) le score local.
+     *
+     * @param index Numéro d'ordre
      * @param pwd   Le mot de passe à afficher
      */
     private void printResult(int index, String pwd) {
-        int score      = evaluator.calculateScore(pwd);
-        String label   = evaluator.getLabel(score);
-        System.out.printf("  %d. %-20s  Force : %s%n", index, pwd, label);
+
+        // Score local — toujours calculé
+        int localScore    = evaluator.calculateScore(pwd);
+        String localLabel = evaluator.getLabel(localScore);
+
+        System.out.println("\n  " + index + ". Mot de passe : " + pwd);
+        System.out.println("     Score local  : " + localLabel);
+
+        // Score Docker — seulement si le conteneur est actif
+        if (dockerAvailable) {
+            ValidationResult result = validator.validate(pwd);
+            if (result.isSuccess()) {
+                System.out.println("     Score Docker : " + result.getLabel()
+                        + " (crack : " + result.getCrackTime() + ")");
+            } else {
+                System.out.println("     Score Docker : indisponible");
+            }
+        }
     }
 
     /**
-     * Demande la longueur souhaitée et valide que c'est entre 4 et 64.
-     *
-     * @return La longueur choisie par l'utilisateur
+     * Demande la longueur et valide entre 4 et 64.
      */
     private int askLength() {
         System.out.print("Longueur du mot de passe (4-64) : ");
@@ -110,16 +138,13 @@ public class CLI {
                 if (length >= 4 && length <= 64) return length;
                 System.out.print("Entrez un nombre entre 4 et 64 : ");
             } catch (NumberFormatException e) {
-                // L'utilisateur a tapé autre chose qu'un nombre entier
                 System.out.print("Nombre invalide, reessayez : ");
             }
         }
     }
 
     /**
-     * Demande combien de mots de passe générer et valide entre 1 et 50.
-     *
-     * @return Le nombre de mots de passe souhaité
+     * Demande le nombre de mots de passe et valide entre 1 et 50.
      */
     private int askCount() {
         System.out.print("Combien de mots de passe generer ? (1-50) : ");
@@ -135,11 +160,8 @@ public class CLI {
     }
 
     /**
-     * Pose une question oui/non et retourne true pour "o", false pour "n".
+     * Pose une question oui/non.
      * Redemande tant que la réponse n'est ni "o" ni "n".
-     *
-     * @param question La question à afficher
-     * @return true si "o", false si "n"
      */
     private boolean askBoolean(String question) {
         System.out.print(question + " ");
