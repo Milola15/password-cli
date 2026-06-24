@@ -13,26 +13,32 @@ import java.util.List;
 public class Main {
 
     public static void main(String[] args) {
-        System.out.println("=== Password CLI - Pigier Côte d'Ivoire ===");
-        System.out.println("Démarrage de l'application...");
+        System.out.println("=== Password CLI - Pigier Côte d'Ivoire ===\n");
 
-        // ---étape 2 : génération de mots de passe ---
-
-        // : mot de passe standard (toutes options activées, longueur 12)
         GeneratorPassword generator = new GeneratorPassword(12, true, true, true, true);
-        String password = generator.generate();
-        System.out.println("Mot de passe généré : " + password);
+        StrengthEvaluator evaluator = new StrengthEvaluator();
 
-        // : mode rafale — 5 mots de passe d'un coup
+        // Test 1 : un mot de passe avec son score
+        String password = generator.generate();
+        int score = evaluator.calculateScore(password);
+        System.out.println("Mot de passe : " + password);
+        System.out.println("Force       : " + evaluator.getLabel(score));
+
+        // Test 2 : mode rafale avec score pour chacun
         System.out.println("\n--- Mode Rafale (5 mots de passe) ---");
         List<String> batch = generator.generateBatch(5);
         for (int i = 0; i < batch.size(); i++) {
-            System.out.println((i + 1) + ". " + batch.get(i));
+            String pwd = batch.get(i);
+            int s = evaluator.calculateScore(pwd);
+            System.out.println((i + 1) + ". " + pwd + "  →  " + evaluator.getLabel(s));
         }
 
-        // Test 3 : sans symboles, longueur 8
-        System.out.println("\n--- Sans symboles, longueur 8 ---");
-        GeneratorPassword simple = new GeneratorPassword(8, true, true, true, false);
-        System.out.println("Mot de passe : " + simple.generate());
+        // Test 3 : mot de passe faible (court, sans symboles)
+        System.out.println("\n--- Test mot de passe faible ---");
+        GeneratorPassword weak = new GeneratorPassword(5, false, true, false, false);
+        String weakPwd = weak.generate();
+        int weakScore = evaluator.calculateScore(weakPwd);
+        System.out.println("Mot de passe : " + weakPwd);
+        System.out.println("Force       : " + evaluator.getLabel(weakScore));
     }
 }
