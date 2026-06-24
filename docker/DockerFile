@@ -1,0 +1,19 @@
+# Image Python légère — suffisante pour Flask et zxcvbn
+FROM python:3.11-slim
+
+# Dossier de travail dans le conteneur
+WORKDIR /app
+
+# Copier et installer les dépendances en premier
+# (Docker met cette couche en cache si requirements.txt ne change pas)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copier le serveur Flask
+COPY app.py .
+
+# Exposer le port 5000
+EXPOSE 5000
+
+# Lancer le serveur au démarrage du conteneur
+CMD ["python", "app.py"]
